@@ -1,0 +1,6 @@
+.venv
+*.jpg
+roadmap.md
+images/
+data/
+images_train/
