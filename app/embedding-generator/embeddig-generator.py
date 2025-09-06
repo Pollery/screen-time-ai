@@ -1,3 +1,6 @@
+### not used anymore
+# This script generates face embeddings for actors from images stored in a specified directory.
+
 from fastai.vision.all import *
 import torch
 import numpy as np

@@ -4,3 +4,7 @@ roadmap.md
 images/
 data/
 images_train/
+__pycache__/
+*.xlsx
+*.csv
+*.pth
