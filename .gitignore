@@ -1,12 +1,13 @@
-.venv
-*.jpg
-roadmap.md
-images/
-data/
-images_train/
+# Ignore everything
+*
+
+# Don't ignore the .gitignore file itself
+!.gitignore
+
+# Don't ignore .py files
+!*.py
+
+# Don't ignore directories (so Git can find the .py files inside)
+!*/
+
 __pycache__/
-*.xlsx
-*.csv
-*.pth
-*.directory
-*.env

@@ -9,14 +9,14 @@ import csv
 import base64
 import pandas as pd
 from IPython.display import HTML, display
+import torch
+from torchvision.transforms import transforms
+from PIL import Image
 
 
 class TMDbClient:
     """
     A client to interact with The Movie Database (TMDb) API.
-
-    This class encapsulates API calls for searching movies, retrieving
-    credits, and downloading actor profile images.
     """
 
     BASE_URL = "https://api.themoviedb.org/3"
@@ -25,9 +25,6 @@ class TMDbClient:
     def __init__(self, api_header):
         """
         Initializes the TMDbClient with the API authorization header.
-
-        Args:
-            api_header (str): The Authorization header token from TMDb.
         """
         if not api_header:
             raise ValueError(
@@ -41,13 +38,6 @@ class TMDbClient:
     def _make_request(self, endpoint, params=None):
         """
         Helper method to make a GET request to a TMDb endpoint.
-
-        Args:
-            endpoint (str): The API endpoint path.
-            params (dict, optional): URL parameters for the request. Defaults to None.
-
-        Returns:
-            dict: The JSON response as a dictionary, or None on failure.
         """
         url = f"{self.BASE_URL}/{endpoint}"
         try:
@@ -61,12 +51,6 @@ class TMDbClient:
     def search_movie(self, query):
         """
         Searches for a movie by its title.
-
-        Args:
-            query (str): The movie title to search for.
-
-        Returns:
-            dict or None: A dictionary containing the movie data, or None on failure.
         """
         endpoint = "search/movie"
         params = {
@@ -88,49 +72,17 @@ class TMDbClient:
     def get_movie_credits(self, movie_id):
         """
         Retrieves the cast and crew credits for a specific movie ID.
-
-        Args:
-            movie_id (int): The ID of the movie.
-
-        Returns:
-            dict or None: A dictionary containing the credits data, or None on failure.
         """
         endpoint = f"movie/{movie_id}/credits"
         print(f"Retrieving credits for movie ID: {movie_id}...")
         data = self._make_request(endpoint, {"language": "en-US"})
         return data
 
-    @staticmethod
-    def get_actors_from_credits(credits_data):
-        """
-        Filters the credits data to extract information about actors.
-
-        Args:
-            credits_data (dict): The credits data from the TMDb API.
-
-        Returns:
-            list: A list of dictionaries, where each dictionary contains actor info.
-        """
-        actors = []
-        if credits_data and credits_data.get("cast"):
-            for person in credits_data["cast"]:
-                if person.get("known_for_department") == "Acting":
-                    actor_info = {
-                        "id": person.get("id"),
-                        "name": person.get("name"),
-                        "profile_path": person.get("profile_path"),
-                        "character": person.get("character"),
-                    }
-                    actors.append(actor_info)
-        return actors
-
-    def download_actor_images(self, actors_list, output_dir="images_train"):
+    def download_actor_images(
+        self, actors_list, output_dir
+    ):  # Removed default value
         """
         Downloads profile images for a list of actors.
-
-        Args:
-            actors_list (list): A list of dictionaries with actor information.
-            output_dir (str, optional): The directory to save the images. Defaults to "images_train".
         """
         if not actors_list:
             print("No actors to download images for.")
@@ -173,18 +125,12 @@ class TMDbClient:
     def save_actors_to_csv(
         self,
         actors_list,
-        output_dir="actors_info",
-        file_name="actors.csv",
-        images_dir="images_train",
+        output_dir,
+        file_name,
+        images_dir,  # Removed default value
     ):
         """
         Saves actor information to a CSV file including a base64 encoded image.
-
-        Args:
-            actors_list (list): A list of dictionaries with actor information.
-            output_dir (str, optional): The directory to save the CSV file. Defaults to "actors_info".
-            file_name (str, optional): The name of the CSV file. Defaults to "actors.csv".
-            images_dir (str, optional): The directory where actor images are saved. Defaults to "images_train".
         """
         if not actors_list:
             print("No actors to save to CSV.")
@@ -227,51 +173,129 @@ class TMDbClient:
         print("CSV file saved successfully!")
 
 
-if __name__ == "__main__":
-    # Load environment variables
-    env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=env_path)
-    HEADER = os.getenv("HEADER")
+class MovieDataProcessor:
+    """
+    Manages the end-to-end process of fetching movie data,
+    downloading actor images, and processing them.
+    """
 
-    if not HEADER:
-        print("Error: HEADER environment variable is not set.")
-        exit()
+    def __init__(self, client):
+        """
+        Initializes the processor with a TMDbClient instance.
+        """
+        self.client = client
+        self.images_dir = "images_train"  # This is now just a folder name part
+        self.csv_dir = "actors_info"
 
-    # Create a client instance
-    client = TMDbClient(api_header=HEADER)
+    @staticmethod
+    def filter_actors(credits_data):
+        """
+        Filters the credits data to extract information about actors,
+        skipping those with "(voice)" in their character name.
+        """
+        actors = []
+        if credits_data and credits_data.get("cast"):
+            for person in credits_data["cast"]:
+                character_name = person.get("character", "")
+                if (
+                    person.get("known_for_department") == "Acting"
+                    and "(voice)" not in character_name
+                ):
+                    actor_info = {
+                        "id": person.get("id"),
+                        "name": person.get("name"),
+                        "profile_path": person.get("profile_path"),
+                        "character": character_name,
+                    }
+                    actors.append(actor_info)
+        return actors
 
-    # Main script logic
-    movie_query = "harry potter and the deathly hallows part 1"
+    def process_movie(self, movie_query):
+        """
+        Orchestrates the entire process for a given movie query.
+        """
+        movie_data = self.client.search_movie(movie_query)
 
-    movie_data = client.search_movie(movie_query)
+        if movie_data and movie_data.get("results"):
+            first_result_id = movie_data["results"][0]["id"]
+            credits_data = self.client.get_movie_credits(first_result_id)
+            actors = self.filter_actors(credits_data)
 
-    if movie_data and movie_data.get("results"):
-        first_result_id = movie_data["results"][0]["id"]
+            if not actors:
+                print("No actors found for this movie.")
+                return None, None
 
-        credits_data = client.get_movie_credits(first_result_id)
+            pprint.pprint(actors)
 
-        actors = client.get_actors_from_credits(credits_data)
+            # Create a clean directory name from the movie title
+            movie_folder_name = (
+                movie_query.replace(" ", "_")
+                .replace(":", "")
+                .replace("/", "")
+                .replace("\\", "")
+            )
+            # Create the full path for the images folder
+            images_output_path = os.path.join(
+                movie_folder_name, self.images_dir
+            )
 
-        pprint.pprint(actors)
+            # Create a clean filename for the CSV
+            movie_filename = movie_folder_name + ".csv"
 
-        client.download_actor_images(actors)
+            # Download images and save CSV
+            self.client.download_actor_images(
+                actors, images_output_path
+            )  # Pass the full path
+            self.client.save_actors_to_csv(
+                actors,
+                self.csv_dir,
+                file_name=movie_filename,
+                images_dir=images_output_path,
+            )
 
-        client.save_actors_to_csv(actors)
+            # Create the DataFrame and tensor dictionary
+            actors_info_df = pd.DataFrame(actors)
+            actor_tensors = self.get_actor_images_tensors_by_id(
+                actors, images_output_path
+            )
 
-        # Read the CSV file generated by your save_actors_to_csv method
-        csv_path = "actors_info/actors.csv"  # adjust path if needed
-        df = pd.read_csv(csv_path)
+            # Return both the tensors and the DataFrame
+            return actor_tensors, actors_info_df
+        else:
+            print(f"Could not find a movie for the query: '{movie_query}'")
+            return None, None
 
-        # Function to convert a base64 encoded image string to an HTML image tag
-        def base64_to_img_html(encoded_str):
-            if isinstance(encoded_str, str) and encoded_str:
-                return f'<img src="data:image/jpeg;base64,{encoded_str}" width="100" />'
-            return ""
+    def get_actor_images_tensors_by_id(self, actors_list, images_dir):
+        print("\nConverting images to PyTorch tensors...")
+        tensors_by_id = {}
 
-        # Apply the conversion to the 'image' column
-        df["image"] = df["image"].apply(base64_to_img_html)
+        # Define the transformations
+        to_tensor = transforms.ToTensor()
+        center_crop = transforms.CenterCrop(640)
 
-        # Display the DataFrame with the images rendered as HTML
-        display(HTML(df.to_html(escape=False)))
-    else:
-        print(f"Could not find a movie for the query: '{movie_query}'")
+        for actor in tqdm(actors_list, desc="Creating tensors", unit="image"):
+            image_file = os.path.join(images_dir, f"{actor.get('id')}.jpg")
+            if os.path.exists(image_file):
+                try:
+                    if os.path.getsize(image_file) > 0:
+                        image = Image.open(image_file).convert("RGB")
+                        width, height = image.size
+
+                        # Apply crop only if a dimension is larger than 640
+                        if width > 640 or height > 640:
+                            image = center_crop(image)
+
+                        tensor = to_tensor(image)
+
+                        key = f"{actor.get('id')}"
+                        tensors_by_id[key] = tensor
+                    else:
+                        tqdm.write(
+                            f"Skipping empty or corrupted image file: {image_file}"
+                        )
+                except Exception as e:
+                    tqdm.write(
+                        f"Error loading image for actor ID {actor.get('id')}: {e}"
+                    )
+
+        return tensors_by_id
