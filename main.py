@@ -10,7 +10,7 @@ from app.frame_extractor.frame_extractor import VideoProcessor
 from app.tmdb_api.tmdb_api import TMDbClient, MovieDataProcessor
 from app.embedding_generator.face_embedding import FaceEmbeddingGenerator
 from app.embedding_generator.face_matcher import FaceMatcherModule
-
+from app.generate_eda_report.generate_eda_report import generate_eda_report
 
 # Load environment variables from .env file
 load_dotenv()
@@ -168,51 +168,5 @@ else:
 
 
 if __name__ == "__main__":
+    generate_eda_report(df_merged)
     print("Script execution finished.")
-
-
-import pandas as pd
-from IPython.display import display, HTML
-
-
-# --- Helper Function to create an HTML image tag from base64 data ---
-def base64_to_img_html(encoded_str, width=150):
-    if isinstance(encoded_str, str) and encoded_str:
-        return f'<img src="data:image/jpeg;base64,{encoded_str}" width="{width}" height="auto" />'
-    return ""
-
-
-# --- Load the final merged CSV file ---
-try:
-    df = pd.read_csv("face_matching_results_with_actor_info.csv")
-
-    # --- Apply the conversion to the base64 columns ---
-    # Convert scene image column
-    df["scene_image"] = df["scene_image_base64"].apply(
-        base64_to_img_html, width=200
-    )
-
-    # Convert actor profile image column
-    df["actor_profile_image"] = df["profile_image_base64"].apply(
-        base64_to_img_html, width=100
-    )
-
-    # --- Display the DataFrame as HTML ---
-    # We display a subset of columns for readability
-    columns_to_display = [
-        "image_filename",
-        "scene_image",
-        "best_match",
-        "name",
-        "character",
-        "actor_profile_image",
-        "similarity_score",
-    ]
-
-    # Use to_html with escape=False to render the image tags
-    display(HTML(df[columns_to_display].to_html(escape=False)))
-
-except FileNotFoundError:
-    print(
-        "The CSV file 'face_matching_results_with_actor_info.csv' was not found. Please run your script first to generate the file."
-    )
