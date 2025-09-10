@@ -55,11 +55,11 @@ The argument `--server.maxUploadSize 3000` allows uploads of files up to **3 GB*
 ## 📸 Example Screenshots
 
 1. **Landing Page (App Homepage)**  
-   ![Landing Page](readme_images/landing_page.png){: width="800px"}
+   ![Landing Page](readme_images/landing_page.png)
 
 2. **Processing Steps**  
-   ![Processing Page](readme_images/processing.png){: width="800px"}
-   ![End of Processing Page](readme_images/endprocessing.png){: width="800px"}
+   ![Processing Page](readme_images/processing.png)
+   ![End of Processing Page](readme_images/endprocessing.png)
 
 3. **EDA Report Overview**  
    Example generated using the movie *Top Gun: Maverick*.  
@@ -69,9 +69,9 @@ The argument `--server.maxUploadSize 3000` allows uploads of files up to **3 GB*
    - Screen time distribution per actor  
    - Confidence scores for face recognition  
 
-   ![EDA Report - Actor List](readme_images/eda1.png){: width="800px"}
-   ![EDA Report - Screen Time](readme_images/eda2.png){: width="800px"}
-   ![EDA Report - Match Quality](readme_images/eda3.png){: width="800px"}
+   ![EDA Report - Actor List](readme_images/eda1.png)
+   ![EDA Report - Screen Time](readme_images/eda2.png)
+   ![EDA Report - Match Quality](readme_images/eda3.png)
 
 ---
 
