@@ -212,7 +212,7 @@ with st.sidebar:
     st.header("Upload Video & Enter Movie Name")
     movie_name = st.text_input(
         "Enter Movie Name (e.g., Harry Potter and the Deathly Hallows part 1)",
-        "Harry Potter and the Deathly Hallows part 1",
+        "Movie",
     )
     uploaded_file = st.file_uploader(
         "Upload a Movie Trailer or Clip", type=["mp4", "webm", "mov"]

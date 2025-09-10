@@ -10,4 +10,11 @@
 # Don't ignore directories (so Git can find the .py files inside)
 !*/
 
+!readme.md
+!landing_page.png
+!processing.png
+!endprocessing.png
+!eda1.png
+!eda2.png
+!eda3.png
 __pycache__/
