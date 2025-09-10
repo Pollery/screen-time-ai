@@ -86,28 +86,22 @@ class VideoProcessor:
         )
         cap.release()
 
-    def process(self, extract_frames=True):
+    def process(self, extract_frames=True, batch_size=100):
         """
         Runs the full video processing workflow.
 
         Args:
             extract_frames (bool): If True, proceeds with frame extraction.
+            batch_size (int): The number of frames to yield in each batch.
         """
         self.convert_video()
         self.analyze_video()
 
-        # if extract_frames:
-        #     choice = (
-        #         input("Do you want to continue with frame extraction? (y/n): ")
-        #         .strip()
-        #         .lower()
-        #     )
-        #     if choice == "y":
-        return self.frame_extractor.extract_frames_per_second()
-        #     else:
-        #         print("Frame extraction aborted.")
-        #         return None
-        # return None
+        if extract_frames:
+            return self.frame_extractor.extract_frames_per_second_batch(
+                batch_size=batch_size
+            )
+        return None
 
 
 class FrameExtractor:
@@ -131,12 +125,12 @@ class FrameExtractor:
             return False
         return True
 
-    def extract_frames_per_second(self):
+    def extract_frames_per_second_batch(self, batch_size=100):
         """
-        Extracts one frame per second and returns a PyTorch tensor dictionary.
+        Extracts one frame per second and yields batches of PyTorch tensor dictionaries.
         """
         if not self._open_video():
-            return None
+            return
 
         self._create_output_folder()
 
@@ -145,21 +139,14 @@ class FrameExtractor:
         frame_count = 0
         saved_frame_count = 0
 
-        # New: Use a dictionary to store frames by number
-        extracted_frames_dict = {}
+        current_batch = {}
 
         print(f"Video FPS: {fps:.2f}")
         print(f"Extracting a frame every {frames_to_skip} frames...")
 
-        start_time = time.perf_counter()
-
-        # Define a transformation to convert the PIL Image to a PyTorch tensor
-        # This will be used for every frame
         transform = transforms.Compose(
             [
-                transforms.Resize(
-                    (640, 640)
-                ),  # Ensure frames match the model's expected input size
+                transforms.Resize((1024, 1024)),
                 transforms.ToTensor(),
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
@@ -177,38 +164,25 @@ class FrameExtractor:
                     self.output_folder, f"frame_{saved_frame_count:03d}.jpg"
                 )
                 cv2.imwrite(output_filename, frame)
-                # print(f"Saved {output_filename}") # Removed to avoid cluttering output
 
-                # Convert the BGR frame to a PyTorch tensor
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(rgb_frame)
-
-                # Apply the transformation to the PIL Image
                 tensor_frame = transform(pil_image)
 
-                # Store the tensor in the dictionary with the frame count as key
-                extracted_frames_dict[saved_frame_count] = tensor_frame
-
+                current_batch[saved_frame_count] = tensor_frame
                 saved_frame_count += 1
+
+                if len(current_batch) >= batch_size:
+                    yield current_batch
+                    current_batch = {}
             frame_count += 1
 
-        self.cap.release()
-        end_time = time.perf_counter()
-        extraction_time = end_time - start_time
+        if current_batch:
+            yield current_batch
 
+        self.cap.release()
         print("\nFrame extraction complete!")
         print(f"Total frames extracted: {saved_frame_count}")
-        print(f"Extraction took {extraction_time:.2f} seconds.")
-
-        # Return the dictionary of tensors
-        if extracted_frames_dict:
-            print(
-                f"Returned a dictionary with {len(extracted_frames_dict)} frame tensors."
-            )
-            return extracted_frames_dict
-        else:
-            print("No frames were extracted. Returning an empty dictionary.")
-            return {}
 
 
 if __name__ == "__main__":

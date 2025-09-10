@@ -61,18 +61,18 @@ def generate_eda_report(df: pd.DataFrame, output_path: str = "eda_report.md"):
     best_match = df.loc[df["similarity_score"].idxmax()]
     worst_match = df.loc[df["similarity_score"].idxmin()]
 
-    best_match_img = create_markdown_image(
-        best_match["scene_image_base64"],
-        alt_text="Best Match Scene",
-        width=480,
-        height=270,
-    )
-    worst_match_img = create_markdown_image(
-        worst_match["scene_image_base64"],
-        alt_text="Worst Match Scene",
-        width=480,
-        height=270,
-    )
+    # best_match_img = create_markdown_image(
+    #     best_match["scene_image_base64"],
+    #     alt_text="Best Match Scene",
+    #     width=480,
+    #     height=270,
+    # )
+    # worst_match_img = create_markdown_image(
+    #     worst_match["scene_image_base64"],
+    #     alt_text="Worst Match Scene",
+    #     width=480,
+    #     height=270,
+    # )
 
     # --- 3. Some interesting facts ---
     avg_score = df["similarity_score"].mean()
@@ -113,12 +113,12 @@ def generate_eda_report(df: pd.DataFrame, output_path: str = "eda_report.md"):
 ### Best Match
 The model's most confident match was with a score of **{best_match['similarity_score']:.4f}**.
 - **Character**: {best_match['character']} (as **{best_match['name']}**)
-- **Original Frame**: {best_match_img}
+- **Original Frame**: ##best_match_img
 
 ### Worst Match
 The least confident match had a score of **{worst_match['similarity_score']:.4f}**.
 - **Character**: {worst_match['character']} (as **{worst_match['name']}**)
-- **Original Frame**: {worst_match_img}
+- **Original Frame**: ##worst_match_img
 
 ---
 

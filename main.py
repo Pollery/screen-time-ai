@@ -1,37 +1,30 @@
-import torch
+import argparse
 import pandas as pd
 from dotenv import load_dotenv
 import os
 import base64
 from pathlib import Path
-import cv2  # Import for cv2.imencode
-import numpy as np  # Import for array handling
+import cv2
+import torch
+import numpy as np
+
+# Import your existing modules
 from app.frame_extractor.frame_extractor import VideoProcessor
 from app.tmdb_api.tmdb_api import TMDbClient, MovieDataProcessor
 from app.embedding_generator.face_embedding import FaceEmbeddingGenerator
 from app.embedding_generator.face_matcher import FaceMatcherModule
 from app.generate_eda_report.generate_eda_report import generate_eda_report
 
-# Load environment variables from .env file
+
+# Load environment variables once
 load_dotenv()
-
-# --- Configuration ---
-MOVIE_NAME = "Harry Potter and the Deathly Hallows part 1"
-VIDEO_FILE = "data/Harry Potter and the Deathly Hallows - Main Trailer [Su1LOpjvdZ4].webm"
-OUTPUT_DIRECTORY = f"{(MOVIE_NAME.replace(" ", "_")
-        .replace(":", "")
-        .replace("/", "")
-        .replace("\\", ""))}"
-
-# Get the API header from environment variables
 HEADER = os.getenv("HEADER")
 
 
 def tensor_to_base64(img_tensor: torch.Tensor, normalized: bool = True) -> str:
     """
     Converts a torch.Tensor image to a base64-encoded JPEG string.
-    - normalized=True → assumes ImageNet-style normalization, will denormalize before display.
-    - normalized=False → assumes raw RGB [0,1] or [0,255], no denormalization.
+    This function is used for embedding images within the report.
     """
     if img_tensor is None:
         return ""
@@ -39,7 +32,6 @@ def tensor_to_base64(img_tensor: torch.Tensor, normalized: bool = True) -> str:
         tensor = img_tensor.clone()
 
         if normalized:
-            # Denormalize (ImageNet defaults)
             mean = (
                 torch.tensor([0.485, 0.456, 0.406])
                 .view(3, 1, 1)
@@ -52,11 +44,8 @@ def tensor_to_base64(img_tensor: torch.Tensor, normalized: bool = True) -> str:
             )
             tensor = tensor * std + mean
 
-        # Ensure values are in [0,1] then scale
         tensor = tensor.clamp(0, 1)
         img_np = (tensor.permute(1, 2, 0).cpu().numpy() * 255).astype("uint8")
-
-        # OpenCV expects BGR
         ret, buffer = cv2.imencode(".jpg", img_np[:, :, ::-1])
         if not ret:
             print("Could not encode image to JPEG.")
@@ -69,69 +58,70 @@ def tensor_to_base64(img_tensor: torch.Tensor, normalized: bool = True) -> str:
         return ""
 
 
+movie_name = "Top Gun Maverick"
+video_path = "./data/Top Gun Maverick (2022) [1080p] [BluRay] [5.1] [YTS.MX]/reduzido15min.mp4"
+
+output_directory = f"{(movie_name.replace(" ", "_").replace(":", "").replace("/", "").replace("\\", ""))}"
+
 # --- Step 1: Extract Movie Frames and Tensors ---
-print("\n--- Starting Video Processing ---")
+print("🎬 Processing video and extracting frames...")
 try:
-    processor = VideoProcessor(VIDEO_FILE, OUTPUT_DIRECTORY)
-    video_tensors = processor.process()
+    processor = VideoProcessor(video_path, output_directory)
+    print("✅ Video processing initialized.")
 except Exception as e:
-    print(f"Error during video processing: {e}")
-    video_tensors = {}
+    print(f"❌ Error during video processing: {e}")
+
 
 # --- Step 2: Extract Actor Data from TMDB ---
-print("\n--- Starting API Extraction ---")
+print("📡 Fetching actor data from TMDB...")
 try:
     client = TMDbClient(api_header=HEADER)
     tmdb_processor = MovieDataProcessor(client)
-    actor_tensors, actors_df = tmdb_processor.process_movie(MOVIE_NAME)
+    actor_tensors, actors_df = tmdb_processor.process_movie(movie_name)
+    print("✅ API data extraction complete!")
 except Exception as e:
-    print(f"Error during API data extraction: {e}")
-    actor_tensors = {}
-    actors_df = pd.DataFrame()
+    print(f"❌ Error during API data extraction: {e}")
 
-# --- Step 3: Generate Face Embeddings for Actors ---
-print("\n--- Starting Actors Embedding Process ---")
+# --- Step 3 & 4: Generate Embeddings and Match Faces (Batch Processing) ---
+if not actor_tensors:
+    print("⚠️ Skipping face matching due to missing actor data.")
+
+
 face_embedder = FaceEmbeddingGenerator()
-
-if actor_tensors:
-    print("Processing actor images from TMDb...")
+print("🔍 Generating face embeddings and matching faces...")
+try:
     face_embedder.process_tensors(actor_tensors, display=False)
     actor_embeddings = face_embedder.get_embeddings()
-else:
-    print("No actor tensors were generated. Skipping actor embedding process.")
-    actor_embeddings = {}
 
-# --- Step 4: Perform Face Matching ---
-print("\n--- Starting Video Face Matching Process ---")
-if video_tensors and actor_embeddings:
-    matcher = FaceMatcherModule(
-        video_tensors=video_tensors,
-        actor_embeddings=actor_embeddings,
-        face_embedder=face_embedder,
-    )
-    face_matching_df = matcher.run()
-    print("Face matching complete.")
+    face_matching_df = pd.DataFrame()  # Initialize an empty DataFrame
+    # Iterate over batches of video tensors
+    for i, video_tensors_batch in enumerate(processor.process(batch_size=500)):
+        print(f"Processing batch {i+1}...")
+        if not video_tensors_batch:
+            continue
 
-    # --- Step 5: Merge Results with Actor Info and Base64 Images ---
+        matcher = FaceMatcherModule(
+            video_tensors=video_tensors_batch,
+            actor_embeddings=actor_embeddings,
+            face_embedder=face_embedder,
+        )
+        batch_face_matching_df = matcher.run()
+        face_matching_df = pd.concat(
+            [face_matching_df, batch_face_matching_df], ignore_index=True
+        )
+
+    if face_matching_df.empty:
+        print("⚠️ No face matching results generated.")
+    print("✅ Face matching complete!")
+except Exception as e:
+    print(f"❌ Error during face matching: {e}")
+
+
+# --- Step 5: Add Base64 Images and Merge Results ---
+print("💾 Merging results and saving data...")
+try:
     if not actors_df.empty:
-        face_matching_df["best_match"] = face_matching_df["best_match"].astype(
-            actors_df["id"].dtype
-        )
-
-        # Add video frame base64 images using the pre-loaded tensors
-        # These ARE normalized → need denormalization
-        face_matching_df["scene_image_base64"] = (
-            face_matching_df["image_filename"]
-            .astype(int)
-            .apply(
-                lambda x: tensor_to_base64(
-                    video_tensors.get(x), normalized=True
-                )
-            )
-        )
-
-        # Add actor profile base64 images using the pre-loaded tensors
-        # These are NOT normalized → use raw RGB
+        # Add actor profile base64 images only if actor data exists
         actors_df["profile_image_base64"] = (
             actors_df["id"]
             .astype(str)
@@ -140,6 +130,11 @@ if video_tensors and actor_embeddings:
                     actor_tensors.get(x), normalized=False
                 )
             )
+        )
+
+        # Ensure data types match before merging
+        face_matching_df["best_match"] = face_matching_df["best_match"].astype(
+            actors_df["id"].dtype
         )
 
         df_merged = pd.merge(
@@ -151,22 +146,23 @@ if video_tensors and actor_embeddings:
         ).drop(columns=["id"])
 
         output_csv_path = "face_matching_results_with_actor_info.csv"
-        df_merged.to_csv(output_csv_path, index=False)
         print(f"Merged results saved to {output_csv_path}")
     else:
-        print(
-            "Actors DataFrame is empty. Skipping merge and saving raw results."
-        )
+        print("⚠️ Actors DataFrame is empty. Skipping merge with actor info.")
+        df_merged = face_matching_df
         output_csv_path = "face_matching_results.csv"
-        face_matching_df.to_csv(output_csv_path, index=False)
-        print(f"Raw results saved to {output_csv_path}")
 
-else:
-    print(
-        "Video tensors or actor embeddings are missing. Skipping face matching."
-    )
+    df_merged.to_csv(output_csv_path, index=False)
+except Exception as e:
+    print(f"❌ Error during data merging or saving: {e}")
 
 
-if __name__ == "__main__":
-    generate_eda_report(df_merged)
-    print("Script execution finished.")
+# --- Step 6: Generate EDA Report ---
+print("📊 Generating EDA report...")
+try:
+    eda_report_path = f"eda_report_{movie_name.replace(" ", "_").replace(":", "").replace("/", "").replace("\\", "").lower()}.md"
+    generate_eda_report(df_merged, output_path=eda_report_path)
+    print("🎉 EDA report generated successfully!")
+
+except Exception as e:
+    print(f"❌ Error during EDA report generation: {e}")

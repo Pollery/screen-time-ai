@@ -61,10 +61,6 @@ def tensor_to_base64(img_tensor: torch.Tensor, normalized: bool = True) -> str:
 # Use st.cache_data to cache the heavy processing functions if needed, though for a full run it's less critical.
 # Let's refactor the main logic into a single function.
 def run_full_pipeline(movie_name: str, video_path: str):
-    """
-    Executes the entire data processing and report generation pipeline.
-    Returns the path to the generated markdown report.
-    """
     output_directory = f"{(movie_name.replace(" ", "_").replace(":", "").replace("/", "").replace("\\", ""))}"
 
     # --- Step 1: Extract Movie Frames and Tensors ---
@@ -73,10 +69,10 @@ def run_full_pipeline(movie_name: str, video_path: str):
     ) as status:
         try:
             processor = VideoProcessor(video_path, output_directory)
-            video_tensors = processor.process()
-            status.update(
-                label="✅ Video processing complete!", state="complete"
-            )
+            # video_tensors = processor.process() # Original line, now handled by iteration
+            # status.update(
+            #     label="✅ Video processing complete!", state="complete"
+            # )
         except Exception as e:
             st.error(f"Error during video processing: {e}")
             status.update(label="❌ Video processing failed.", state="error")
@@ -100,11 +96,9 @@ def run_full_pipeline(movie_name: str, video_path: str):
             )
             return None
 
-    # --- Step 3 & 4: Generate Embeddings and Match Faces ---
-    if not video_tensors or not actor_tensors:
-        st.warning(
-            "Skipping face matching due to missing video or actor data."
-        )
+    # --- Step 3 & 4: Generate Embeddings and Match Faces (Batch Processing) ---
+    if not actor_tensors:
+        st.warning("Skipping face matching due to missing actor data.")
         return None
 
     face_embedder = FaceEmbeddingGenerator()
@@ -115,44 +109,44 @@ def run_full_pipeline(movie_name: str, video_path: str):
             face_embedder.process_tensors(actor_tensors, display=False)
             actor_embeddings = face_embedder.get_embeddings()
 
-            matcher = FaceMatcherModule(
-                video_tensors=video_tensors,
-                actor_embeddings=actor_embeddings,
-                face_embedder=face_embedder,
+            if not actor_embeddings:
+                st.warning(
+                    "No actor embeddings generated. Skipping face matching."
+                )
+                return None
+
+            all_face_matching_results = []
+            # Iterate over batches of video tensors
+            for i, video_tensors_batch in enumerate(
+                processor.process(batch_size=100)
+            ):
+                st.write(f"Processing batch {i+1}...")
+                if not video_tensors_batch:
+                    continue
+
+                matcher = FaceMatcherModule(
+                    video_tensors=video_tensors_batch,
+                    actor_embeddings=actor_embeddings,
+                    face_embedder=face_embedder,
+                )
+                batch_face_matching_df = matcher.run()
+                all_face_matching_results.append(batch_face_matching_df)
+
+            if not all_face_matching_results:
+                st.warning("No face matching results generated.")
+                return None
+
+            face_matching_df = pd.concat(
+                all_face_matching_results, ignore_index=True
             )
-            face_matching_df = matcher.run()
             status.update(label="✅ Face matching complete!", state="complete")
         except Exception as e:
             st.error(f"Error during face matching: {e}")
             status.update(label="❌ Face matching failed.", state="error")
             return None
 
-        if video_tensors and actor_embeddings:
-            matcher = FaceMatcherModule(
-                video_tensors=video_tensors,
-                actor_embeddings=actor_embeddings,
-                face_embedder=face_embedder,
-            )
-            face_matching_df = matcher.run()
-            status.update(label="✅ Face matching complete!", state="complete")
-        else:
-            st.warning(
-                "Video tensors or actor embeddings are missing. Skipping face matching."
-            )
-            return None  # Exit early if key data is missing
-
         # --- Step 5: Add Base64 Images and Merge Results ---
         with st.spinner("💾 Merging results and saving data..."):
-            # Add video frame base64 images unconditionally after face matching
-            face_matching_df["scene_image_base64"] = (
-                face_matching_df["image_filename"]
-                .astype(int)
-                .apply(
-                    lambda x: tensor_to_base64(
-                        video_tensors.get(x), normalized=True
-                    )
-                )
-            )
 
             if not actors_df.empty:
                 # Add actor profile base64 images only if actor data exists
